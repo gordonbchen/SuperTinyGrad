@@ -1,52 +1,61 @@
+from __future__ import annotations
+
+
 class Var:
-    """Differentiable variable."""
+    """A differentiable variable."""
 
-    def __init__(self, value, child=None):
-        """Initialize variable value."""
+    def __init__(
+        self,
+        value: float,
+        children: tuple[Var, Var] | None = None,
+        derivs: tuple[float, float] | None = None,
+    ) -> None:
+        """Initialize variable."""
         self.value = value
-        self.child = child
 
-        # Set at __op__() call.
-        self.partial_deriv = 1
+        # Allow constants to not have children.
+        self.children = children if children else tuple()
+        self.derivs = derivs if derivs else tuple()
 
-        # Set at calc_deriv() call.
-        self.deriv = 0
+        # Accumulated when backward called.
+        self.deriv = 0.0
+        
+    def backward(self, deriv: float = 1.0) -> None:
+        """Backpropagate derivative to children."""
+        self.deriv += deriv
 
-    def calc_deriv(self, uphill_deriv=1):
-        """Calculate derivatives."""
-        self.deriv = uphill_deriv * self.partial_deriv
+        for (child, child_deriv) in zip(self.children, self.derivs):
+            child.backward(deriv * child_deriv)
 
-        if self.child:
-            self.child.calc_deriv(self.deriv)
+    def _force_var(x: Var | float) -> Var:
+        """Force a value or var to be a var."""
+        return x if type(x) == Var else Var(x)
 
-    def __add__(self, other):
-        self.partial_deriv = 1
-        return Var(self.value + other, child=self)
+    def __add__(self, other: Var | float) -> Var:
+        other = Var._force_var(other)
 
-    def __sub__(self, other):
-        return self.__add__(-1 * other)
+        # Create output variable.
+        value = self.value + other.value
+        children = (self, other)
+        derivs = (1.0, 1.0)
+        return Var(value, children, derivs)
+    
+    def __mul__(self, other: Var | float) -> Var:
+        other = Var._force_var(other)
 
-    def __mul__(self, other):
-        self.partial_deriv = other
-        return Var(self.value * other, child=self)
+        # Create output variable.
+        value = self.value * other.value
+        children = (self, other)
+        derivs = (other.value, self.value)
+        return Var(value, children, derivs)
+    
 
-    def __truediv__(self, other):
-        return self.__mul__(1 / other)
+if __name__ == "__main__":
+    x = Var(5.0)
+    y = x + 2
+    z = (y * x) + x
 
-    def __pow__(self, other):
-        self.partial_deriv = other * (self.value ** (other - 1))
-        return Var(self.value ** other, child=self)
-
-    def __neg__(self):
-        self.partial_deriv = -1
-        return Var(-1 * self.value, child=self)
-
-
-x = Var(2)
-y = (x + 2) ** 3
-z = -y / 2
-
-z.calc_deriv()
-
-print(f"dz/dy = {y.deriv}")
-print(f"dz/dx = {x.deriv}")
+    z.backward()
+    print(z.deriv)
+    print(y.deriv)
+    print(x.deriv)
